@@ -57,6 +57,9 @@ type CDP struct {
 	// handlerMap is the map of target IDs to its active handler.
 	handlerMap map[string]int
 
+	// newTargetTimeout is the time to wait for a target to become active.
+	newTargetTimeout time.Duration
+
 	// logging funcs
 	logf, debugf, errf func(string, ...interface{})
 
@@ -66,11 +69,12 @@ type CDP struct {
 // New creates and starts a new CDP instance.
 func New(ctxt context.Context, opts ...Option) (*CDP, error) {
 	c := &CDP{
-		handlers:   make([]*TargetHandler, 0),
-		handlerMap: make(map[string]int),
-		logf:       log.Printf,
-		debugf:     func(string, ...interface{}) {},
-		errf:       func(s string, v ...interface{}) { log.Printf("error: "+s, v...) },
+		handlers:         make([]*TargetHandler, 0),
+		handlerMap:       make(map[string]int),
+		newTargetTimeout: DefaultNewTargetTimeout,
+		logf:             log.Printf,
+		debugf:           func(string, ...interface{}) {},
+		errf:             func(s string, v ...interface{}) { log.Printf("error: "+s, v...) },
 	}
 
 	// apply options
@@ -104,7 +108,7 @@ func New(ctxt context.Context, opts ...Option) (*CDP, error) {
 	}()
 
 	// TODO: fix this
-	timeout := time.After(defaultNewTargetTimeout)
+	timeout := time.After(c.newTargetTimeout)
 
 	// wait until at least one target active
 	for {
@@ -258,7 +262,7 @@ func (c *CDP) newTarget(ctxt context.Context, opts ...client.Option) (string, er
 		return "", err
 	}
 
-	timeout := time.After(DefaultNewTargetTimeout)
+	timeout := time.After(c.newTargetTimeout)
 
 	for {
 		select {
@@ -357,6 +361,15 @@ func WithRunner(r *runner.Runner) Option {
 func WithTargets(watch <-chan client.Target) Option {
 	return func(c *CDP) error {
 		c.watch = watch
+		return nil
+	}
+}
+
+// WithNewTargetTimeout is a CDP option to select the timeout for a target to
+// become active
+func WithNewTargetTimeout(d time.Duration) Option {
+	return func(c *CDP) error {
+		c.newTargetTimeout = d
 		return nil
 	}
 }
