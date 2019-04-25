@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -57,6 +58,9 @@ type Browser struct {
 	// userDataDir can be initialized by the allocators which set up user
 	// data dirs directly.
 	userDataDir string
+
+	sync.RWMutex
+	targets map[target.SessionID]*Target
 }
 
 type cmdJob struct {
@@ -85,6 +89,8 @@ func NewBrowser(ctx context.Context, urlstr string, opts ...BrowserOption) (*Bro
 		cmdQueue: make(chan cmdJob, 32),
 
 		logf: log.Printf,
+
+		targets: make(map[target.SessionID]*Target),
 	}
 	// apply options
 	for _, o := range opts {
@@ -316,6 +322,9 @@ func (b *Browser) run(ctx context.Context) {
 					b.errf("executor for %q already exists", t.SessionID)
 				}
 				pages[t.SessionID] = t
+				b.Lock()
+				b.targets[t.SessionID] = t
+				b.Unlock()
 
 			case event := <-tabEventQueue:
 				page, ok := pages[event.sessionID]
@@ -330,6 +339,9 @@ func (b *Browser) run(ctx context.Context) {
 				}
 
 			case sessionID := <-b.delTabQueue:
+				b.Lock()
+				delete(b.targets, sessionID)
+				b.Unlock()
 				if _, ok := pages[sessionID]; !ok {
 					b.errf("executor for %q doesn't exist", sessionID)
 				}
@@ -398,6 +410,22 @@ func (b *Browser) run(ctx context.Context) {
 			return
 		}
 	}
+}
+
+func (b *Browser) ListTargets() []target.SessionID {
+	b.RLock()
+	defer b.RUnlock()
+	sessIDs := make([]target.SessionID, 0, len(b.targets))
+	for id := range b.targets {
+		sessIDs = append(sessIDs, id)
+	}
+	return sessIDs
+}
+
+func (b *Browser) GetTarget(id string) *Target {
+	b.RLock()
+	defer b.RUnlock()
+	return b.targets[target.SessionID(id)]
 }
 
 // BrowserOption is a browser option.
