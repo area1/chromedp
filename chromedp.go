@@ -51,6 +51,9 @@ type CDP struct {
 	// cur is the current active target's handler.
 	cur cdp.Executor
 
+	// events is the channel for piping cdproto events from handler to consumer
+	events chan<- *Event
+
 	// handlers is the active handlers.
 	handlers []*TargetHandler
 
@@ -141,6 +144,11 @@ func (c *CDP) AddTarget(ctxt context.Context, t client.Target) {
 		return
 	}
 
+	// add event forwarder, if we have an event channel
+	if c.events != nil {
+		h.send = eventForwarder(t.GetID(), c.events)
+	}
+
 	// run
 	if err := h.Run(ctxt); err != nil {
 		c.errf("could not start handler for %s: %v", t, err)
@@ -175,6 +183,10 @@ func (c *CDP) Shutdown(ctxt context.Context, opts ...client.Option) error {
 
 	if c.r != nil {
 		return c.r.Shutdown(ctxt, opts...)
+	}
+
+	if c.events != nil {
+		close(c.events)
 	}
 
 	return nil
@@ -415,6 +427,15 @@ func WithErrorf(f func(string, ...interface{})) Option {
 func WithLog(f func(string, ...interface{})) Option {
 	return func(c *CDP) error {
 		c.logf, c.debugf, c.errf = f, f, f
+		return nil
+	}
+}
+
+// WithEventChannel is a CDP option that sets the event channel through which a
+// handler may send CDP event messages.
+func WithEventChannel(ev chan<- *Event) Option {
+	return func(c *CDP) error {
+		c.events = ev
 		return nil
 	}
 }
